@@ -4,12 +4,11 @@ import os
 
 app = Flask(__name__)
 
-# Database Connection Function
 def connect_db():
     return mysql.connector.connect(
         host="localhost",
         user="root",
-        password="rexmax543213",  # Use your actual MySQL password
+        password="rexmax543213", 
         database="student_db"
     )
 
@@ -28,7 +27,6 @@ def webhook():
     else:
         return jsonify({'fulfillmentText': "I'm not sure how to handle that request."})
 
-# Function to fetch student CGPA
 def get_student_cgpa(parameters):
     roll_number = parameters.get('roll_number')
 
@@ -51,14 +49,27 @@ def get_student_cgpa(parameters):
 
     return jsonify({'fulfillmentText': response_text})
 
-# Function to fetch faculty information by faculty_id or name
+
 def get_faculty_info(parameters):
-    # Print parameters for debugging
+    
     print("Received parameters:", parameters)
     
     faculty_id = parameters.get('faculty_id')
-    # Try different possible parameter names for faculty name
-    faculty_name = parameters.get('faculty_name') or parameters.get('name') or parameters.get('person')
+   
+    # Try different possible parameter names for faculty name and clean up the value
+    faculty_name = None
+    possible_name_params = ['faculty_name', 'name', 'person', 'any']
+    
+    for param in possible_name_params:
+        if param in parameters and parameters[param]:
+            # Clean up the faculty name
+            faculty_name = str(parameters[param]).strip()
+            # Remove common prefixes and suffixes
+            faculty_name = faculty_name.replace("Dr.", "").replace("Dr", "").replace("Professor", "").replace("Prof.", "").replace("Mr.", "").replace("Mrs.", "").strip()
+            # Remove any extra whitespace
+            faculty_name = " ".join(faculty_name.split())
+            if faculty_name:
+                break
     
     print(f"Extracted faculty_id: {faculty_id}, faculty_name: {faculty_name}")
 
@@ -69,7 +80,7 @@ def get_faculty_info(parameters):
         cursor.execute("SELECT faculty_name, department, roles, qualification, email FROM faculty WHERE faculty_id = %s", (faculty_id,))
     elif faculty_name:
         # Use a more flexible LIKE query for name matching
-        search_name = "%" + str(faculty_name).strip().replace("Dr.", "").strip() + "%"
+        search_name = "%" + faculty_name + "%"
         print(f"Searching with pattern: {search_name}")
         cursor.execute("""
             SELECT faculty_name, department, roles, qualification, email 
@@ -87,7 +98,6 @@ def get_faculty_info(parameters):
         faculty_name, department, roles, qualification, email = result
         response_text = f"{faculty_name} from {department} department has the role of {roles} with {qualification} qualification. They can be contacted at {email}."
     else:
-        # Add more detailed error message for debugging
         if faculty_name:
             response_text = f"Faculty with name similar to '{faculty_name}' not found in the database."
         elif faculty_id:
@@ -97,19 +107,74 @@ def get_faculty_info(parameters):
 
     return jsonify({'fulfillmentText': response_text})
 
-# Function to fetch faculty names by department
+
 def get_faculty_by_department(parameters):
-    # Print parameters for debugging
+   
     print("Received parameters for department query:", parameters)
+    print("Raw parameters:", parameters)
     
     # Try different possible parameter names for department
     department = parameters.get('department') or parameters.get('Department') or parameters.get('department-name') or parameters.get('department_name')
     
-    # Print all keys in parameters for debugging
+    # Print all parameter keys for debugging
     print("All parameter keys:", list(parameters.keys()))
     
+    # Department mappings to handle abbreviations
+    department_mappings = {
+        "cse": "Computer Science Engineering",
+        "computer science": "Computer Science Engineering",
+        "cs": "Computer Science Engineering",
+        "civil": "Civil Engineering",
+        "food": "Food Engineering Technology",
+        "fet": "Food Engineering Technology",
+        "ece": "Electronics and Communication Engineering",
+        "electronics": "Electronics and Communication Engineering",
+        "ie": "Instrumentation Engineering",
+        "instrumentation": "Instrumentation Engineering",
+        "ee": "Electrical Engineering",
+        "electrical": "Electrical Engineering",
+        "me": "Mechanical Engineering",
+        "mechanical": "Mechanical Engineering",
+        "mcd": "Multimedia Communication and Design",
+        "multimedia": "Multimedia Communication and Design",
+        "chem": "Chemistry",
+        "chemistry": "Chemistry",
+        "physics": "Physics",
+        "math": "Mathematics",
+        "maths": "Mathematics",
+        "mathematics": "Mathematics",
+        "hss": "Humanities and Social Science",
+        "humanities": "Humanities and Social Science"
+    }
+    
+    # Check all text parameters for department keywords
     if not department:
-        # If no department parameter found, check if any parameter contains a department name
+        # Check the entire query text if available
+        query_text = parameters.get('text') or ""
+        if isinstance(query_text, str):
+            query_text = query_text.lower()
+            for abbr, full_dept in department_mappings.items():
+                if abbr in query_text:
+                    department = full_dept
+                    print(f"Found department '{department}' in query text")
+                    break
+    
+    # If still no department, check all parameters for department names or abbreviations
+    if not department:
+        for key, value in parameters.items():
+            if isinstance(value, str):
+                value_lower = value.lower()
+                # Check if any known department abbreviation is in the value
+                for abbr, full_dept in department_mappings.items():
+                    if abbr in value_lower:
+                        department = full_dept
+                        print(f"Found department '{department}' in parameter '{key}'")
+                        break
+                if department:
+                    break
+    
+    # If still no department, fall back to checking for standard department names
+    if not department:
         possible_departments = [
             "Computer Science Engineering", "Civil Engineering", "Food Engineering Technology",
             "Electronics and Communication Engineering", "Instrumentation Engineering", 
@@ -117,11 +182,11 @@ def get_faculty_by_department(parameters):
             "Chemistry", "Physics", "Mathematics", "Humanities and Social Science"
         ]
         
-        # Check all parameters for any value that might be a department
         for key, value in parameters.items():
             if isinstance(value, str):
+                value_lower = value.lower()
                 for dept in possible_departments:
-                    if dept.lower() in value.lower():
+                    if dept.lower() in value_lower:
                         department = dept
                         print(f"Found department '{department}' in parameter '{key}'")
                         break
@@ -129,7 +194,7 @@ def get_faculty_by_department(parameters):
                     break
     
     if not department:
-        return jsonify({'fulfillmentText': "Please specify a department name. For example, 'Computer Science Engineering' or 'Electrical Engineering'."})
+        return jsonify({'fulfillmentText': "Please specify a department name. For example, 'Computer Science Engineering' or 'Electrical Engineering'. You can also use abbreviations like CSE, ECE, ME, etc."})
     
     print(f"Searching for faculty in department: {department}")
     
